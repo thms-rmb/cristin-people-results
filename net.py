@@ -43,23 +43,57 @@ async def get_result_contributors(session, result):
         if response.status == codes.ok:
             for contributor in await response.json():
                 for affiliation in contributor['affiliations']:
-                    async with session.get(affiliation['institution']['url']) as response:
-                        if response.status == codes.ok:
-                            institution = await response.json()
-                            affiliation['institution']['institution_name'] = institution['institution_name']
-                    async with session.get(contributor['url']) as response:
-                        if response.status == codes.ok:
-                            person = await response.json()
-                            if 'affiliations' in person:
-                                for employment in person['affiliations']:
-                                    if employment['institution']['cristin_institution_id'] == affiliation['institution']['cristin_institution_id']:
-                                        if employment['active']:
-                                            affiliation['institution']['employment'] = employment
+                    await set_affiliation_institution(session, affiliation)
+                    await set_affiliation_employment(session, contributor, affiliation)
 
                 yield contributor
 
-async def main():
+async def set_affiliation_institution(session, affiliation):
+    async with session.get(affiliation['institution']['url']) as response:
+        if response.status == codes.ok:
+            institution = await response.json()
+            affiliation['institution']['institution_name'] = institution['institution_name']
+
+async def set_affiliation_employment(session, contributor, affiliation):
+    async with session.get(contributor['url']) as response:
+        if response.status == codes.ok:
+            person = await response.json()
+            if 'affiliations' in person:
+                for employment in person['affiliations']:
+                    if employment['institution']['cristin_institution_id'] == affiliation['institution']['cristin_institution_id']:
+                        if employment['active']:
+                            affiliation['institution']['employment'] = employment
+
+async def get_result_affiliation_rows(session):
     results = set()
+    async for person in get_people(session):
+        async for result in get_person_results(session, person):
+            if result['cristin_result_id'] in results:
+                continue
+
+            result_id = result['cristin_result_id']
+            results.add(result_id)
+            
+            _, title = result['title'].popitem()
+            _, category = result['category']['name'].popitem()
+            async for contributor in get_result_contributors(session, result):
+                surname, first_name = contributor['surname'], contributor['first_name']
+                order = contributor['order']
+                
+                for affiliation in contributor['affiliations']:
+                    _, role = affiliation['role']['name'].popitem()
+
+                    institution = affiliation['institution']['cristin_institution_id']
+                    if 'institution_name' in affiliation['institution']:
+                        _, institution = affiliation['institution']['institution_name'].popitem()
+
+                    employment = 'Unknown'
+                    if 'employment' in affiliation['institution']:
+                        if 'position' in affiliation['institution']['employment']:
+                            _, employment = affiliation['institution']['employment']['position'].popitem()
+
+                    yield result_id, title, category, surname, first_name, order, role, employment, institution
+async def main():
     out = csv.writer(sys.stdout)
     out.writerow([
         'Id', 'Title', 'Category',
@@ -68,32 +102,8 @@ async def main():
     ])
     
     async with aiohttp.ClientSession() as session:
-        async for person in get_people(session):
-            async for result in get_person_results(session, person):
-                if result['cristin_result_id'] in results:
-                    continue
-
-                results.add(result['cristin_result_id'])
-                _, title = result['title'].popitem()
-                _, category = result['category']['name'].popitem()
-                async for contributor in get_result_contributors(session, result):
-                    for affiliation in contributor['affiliations']:
-                        _, role = affiliation['role']['name'].popitem()
-                        institution = affiliation['institution']['cristin_institution_id']
-                        if 'institution_name' in affiliation['institution']:
-                            _, institution = affiliation['institution']['institution_name'].popitem()
-
-                        employment = 'Unknown'
-                        if 'employment' in affiliation['institution']:
-                            if 'position' in affiliation['institution']['employment']:
-                                _, employment = affiliation['institution']['employment']['position'].popitem()
-                        row = [
-                            result['cristin_result_id'], title, category,
-                            contributor['surname'], contributor['first_name'],
-                            contributor['order'], role, employment, institution
-                        ]
-
-                        out.writerow(row)
+        async for row in get_result_affiliation_rows(session):
+            out.writerow(row)
 
 if __name__ == '__main__':
     asyncio.run(main())
