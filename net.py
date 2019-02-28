@@ -75,6 +75,10 @@ async def get_result_affiliation_rows(session):
             results.add(result_id)
             
             _, title = result['title'].popitem()
+
+            # Be nice to Microsoft Excel
+            title = " ".join(title.splitlines()).strip()
+
             _, category = result['category']['name'].popitem()
             async for contributor in get_result_contributors(session, result):
                 surname, first_name = contributor['surname'], contributor['first_name']
@@ -106,4 +110,5 @@ async def main():
             out.writerow(row)
 
 if __name__ == '__main__':
-    asyncio.run(main())
+    loop = asyncio.get_event_loop()
+    loop.run_until_complete(main())
