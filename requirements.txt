@@ -7,7 +7,7 @@ chardet==3.0.4
 idna==2.8
 idna-ssl==1.1.0
 multidict==4.5.2
-pycares==2.4.0
+pycares==4.2.0
 requests==2.21.0
 typing==3.6.6
 typing-extensions==3.7.2
